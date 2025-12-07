@@ -75,15 +75,35 @@ def generate_abbrev_index(text):
     abbrev_map = {}
     for full, abbr in matches:
         full_clean = " ".join(full.split())
+        words = [w.strip(",.;:") for w in full_clean.split()]
+        leading_stop = {
+            "and","or","the","a","an","we","therefore","then","shows","use","using","used",
+            "pending","which","that","are","is","was","were","applied","measured","replaced",
+            "similar","from","of","for","in","on","with","to","by"
+        }
+        while words and words[0].lower() in leading_stop:
+            words.pop(0)
+        if not words:
+            continue
         abbr_clean = abbr.strip()
-        if 2 <= len(abbr_clean) <= 10 and len(full_clean.split()) <= 12:
-            abbrev_map[abbr_clean] = full_clean
+        first_letter = abbr_clean[0].lower()
+        start_idx = 0
+        for i, w in enumerate(words):
+            if w and w[0].lower() == first_letter:
+                start_idx = i
+                break
+        words = words[start_idx:]
+        if len(words) > 8:
+            words = words[-8:]
+        phrase = " ".join(words).lower()
+        if 2 <= len(abbr_clean) <= 10 and 1 <= len(phrase.split()) <= 12:
+            abbrev_map[abbr_clean] = phrase
     lines = []
-    for abbr in sorted(abbrev_map.keys()):
-        lines.append(f"{abbr}: {abbrev_map[abbr]}")
+    for ab in sorted(abbrev_map.keys()):
+        lines.append(f"{ab}: {abbrev_map[ab]}")
     return "\n".join(lines)
 
-st.title("Project 2 – Q1/Q2 (Groq deployment)")
+st.title("Input into AI")
 
 mode = st.radio("Choose mode:", ["Answer a question (Q1)", "Make abbreviation list (Q2)"])
 
