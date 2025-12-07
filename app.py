@@ -16,7 +16,7 @@ def generate_answer(client, question, context):
     prompt = f"""
 You are an AI assistant.
 
-Below is the document text (it may be empty):
+Below is the document text (which may be empty):
 
 {context}
 
@@ -28,19 +28,30 @@ Question:
 
 Answer:
 """
+    response = llm.invoke(prompt)
+    return response.content.strip()
 
-    chat_completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",  
-        messages=[
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
-    )
+def generate_abbrev_index(llm, context):
+    prompt = f"""
+Read the article and look for abbreviations written like this:
 
-    return chat_completion.choices[0].message.content.strip()
+full phrase (ABBR)
 
+Use only the abbreviations that are actually defined in the article.
+
+For each one, write a line like:
+ABBR: full phrase
+
+Put the list in A–Z order.
+Do not add anything else.
+
+Article:
+{context}
+
+Abbreviation list:
+"""
+    response = llm.invoke(prompt)
+    return response.content.strip()
 
 def read_pdf(file):
     reader = PdfReader(file)
@@ -48,13 +59,12 @@ def read_pdf(file):
     for page in reader.pages:
         page_text = page.extract_text()
         if page_text:
-            text += page_text
+            text += page_text + "\n"
     return text
 
 def read_docx(file):
     d = docx.Document(file)
-    paragraphs = [p.text for p in d.paragraphs]
-    return "\n".join(paragraphs)
+    return "\n".join([p.text for p in d.paragraphs])
 
 def read_html(file):
     raw = file.read()
@@ -77,29 +87,49 @@ def extract_text(uploaded_file):
     else:
         return read_txt(uploaded_file)
 
-
 st.title("Input to AI")
 
-question = st.text_input("Enter your question:")
+mode = st.radio(
+    "Choose what you want to do:",
+    ["Answer a question (Q1)", "Make abbreviation list (Q2)"]
+)
 
-uploaded_file = st.file_uploader("Upload attachment:")
+if mode == "Answer a question (Q1)":
+    question = st.text_input("Enter your question:")
+    uploaded_file = st.file_uploader("Upload a file (optional):")
 
-if st.button("Ask"):
-    if not question.strip():
-        st.error("Please enter a question before clicking Ask.")
-    else:
-        try:
-            client = get_client()
-        except Exception as e:
-            st.error(f"Error initializing LLM client: {e}")
+    if st.button("Ask"):
+        if not question.strip():
+            st.error("Please enter a question before clicking Ask.")
         else:
+            llm = get_llm()
+
             if uploaded_file is not None:
                 context = extract_text(uploaded_file)
             else:
-                context = ""
+                context = "No document uploaded."
 
             with st.spinner("Thinking..."):
-                answer = generate_answer(client, question, context)
+                answer = generate_answer(llm, question, context)
 
             st.header("AI Response:")
             st.write(answer)
+
+else:
+    uploaded_files = st.file_uploader(
+        "Upload article(s):",
+        accept_multiple_files=True
+    )
+
+    if st.button("Generate abbreviation list"):
+        if not uploaded_files:
+            st.error("Please upload at least one article.")
+        else:
+            llm = get_llm()
+
+            for file in uploaded_files:
+                st.subheader(f"Abbreviation list for: {file.name}")
+                with st.spinner(f"Reading {file.name}..."):
+                    text = extract_text(file)
+                    index_text = generate_abbrev_index(llm, text)
+                st.code(index_text, language="text")
