@@ -1,17 +1,16 @@
 import os
+import re
 import streamlit as st
 from groq import Groq
 from PyPDF2 import PdfReader
 import docx
 from bs4 import BeautifulSoup
-import re
 
 def get_client():
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY environment variable is not set.")
-    client = Groq(api_key=api_key)
-    return client
+    return Groq(api_key=api_key)
 
 def generate_answer(client, question, context):
     short_context = context[:8000]
@@ -35,96 +34,6 @@ Answer:
         messages=[{"role": "user", "content": prompt}]
     )
     return chat_completion.choices[0].message.content.strip()
-
-def clean_phrase(phrase: str) -> str:
-    phrase = " ".join(phrase.split())
-    tokens = phrase.split(" ")
-    collected = []
-    connectors = {"of", "and", "&", "the", "for"}
-
-    i = len(tokens) - 1
-    while i >= 0:
-        t = tokens[i].strip(",.;:")
-        if not t:
-            i -= 1
-            continue
-        if t[0].isupper() or t.lower() in connectors:
-            collected.append(t.strip(",.;:"))
-            i -= 1
-            continue
-        break
-
-    if len(collected) >= 2:
-        collected.reverse()
-        phrase = " ".join(collected)
-
-    lower_p = phrase.lower()
-
-    special_phrases = {
-        "weighted degree centrality": "weighted degree centrality",
-        "structural holes": "structural holes",
-        "research strength": "research strength",
-        "age of organization": "age of organization",
-        "geographic proximity": "geographic proximity",
-        "collaborations": "collaborations",
-        "capital asset pricing model": "capital asset pricing model",
-        "hirschman index": "Hirschman Index",
-        "vector autoregression": "vector autoregression",
-        "ordinary least squares": "ordinary least squares",
-        "generalised least squares estimator": "generalised least squares estimator",
-        "generalised least squares": "generalised least squares",
-        "lagrange multiplier": "Lagrange multiplier",
-        "pacific stock exchange": "Pacific Stock Exchange",
-        "london interbank offer rate": "London Interbank offer rate",
-        "conditional standard deviations": "conditional standard deviations",
-        "security prices": "Security Prices"
-    }
-
-    for key, value in special_phrases.items():
-        if key in lower_p:
-            return value
-
-    words = phrase.split()
-    if len(words) > 6:
-        tail = words[-4:]
-        drop = {"a", "an", "the", "of", "in", "to", "for", "from", "at", "with", "by", "on", "these", "this", "that", "which", "via"}
-        while tail and tail[0].lower().strip(",.;:") in drop:
-            tail.pop(0)
-        if tail:
-            phrase = " ".join(tail)
-
-    return phrase
-
-def generate_abbrev_index(context):
-    text = context.replace("-\n", "")
-    pattern = re.compile(
-        r'([A-Za-z][A-Za-z\s&,\-’\'/]*?)\s*\(\s*([A-Z][A-Z0-9&/-]{1,15})\s*\)',
-        flags=re.UNICODE
-    )
-
-    pairs = {}
-    for match in pattern.finditer(text):
-        phrase = match.group(1).strip(" ,;:.")
-        abbr = match.group(2).strip()
-
-        if not phrase or not abbr:
-            continue
-
-        if " " in abbr and len(abbr) > 5:
-            continue
-
-        if not (1 <= len(abbr) <= 15):
-            continue
-
-        phrase = clean_phrase(phrase)
-
-        if abbr in pairs:
-            continue
-
-        pairs[abbr] = phrase
-
-    lines = [f"{abbr}: {pairs[abbr]}" for abbr in sorted(pairs.keys())]
-    return "\n".join(lines)
 
 def read_pdf(file):
     reader = PdfReader(file)
@@ -160,17 +69,27 @@ def extract_text(uploaded_file):
     else:
         return read_txt(uploaded_file)
 
-st.title("Input to AI")
+def generate_abbrev_index(text):
+    pattern = r'([A-Za-z][A-Za-z\s\-]{2,})\s*\(([A-Z]{2,})\)'
+    matches = re.findall(pattern, text)
+    abbrev_map = {}
+    for full, abbr in matches:
+        full_clean = " ".join(full.split())
+        abbr_clean = abbr.strip()
+        if 2 <= len(abbr_clean) <= 10 and len(full_clean.split()) <= 12:
+            abbrev_map[abbr_clean] = full_clean
+    lines = []
+    for abbr in sorted(abbrev_map.keys()):
+        lines.append(f"{abbr}: {abbrev_map[abbr]}")
+    return "\n".join(lines)
 
-mode = st.radio(
-    "Choose what you want to do:",
-    ["Answer a question (Q1)", "Make abbreviation list (Q2)"]
-)
+st.title("Project 2 – Q1/Q2 (Groq deployment)")
+
+mode = st.radio("Choose mode:", ["Answer a question (Q1)", "Make abbreviation list (Q2)"])
 
 if mode == "Answer a question (Q1)":
     question = st.text_input("Enter your question:")
     uploaded_file = st.file_uploader("Upload a file (optional):")
-
     if st.button("Ask"):
         if not question.strip():
             st.error("Please enter a question before clicking Ask.")
@@ -184,7 +103,6 @@ if mode == "Answer a question (Q1)":
                     context = extract_text(uploaded_file)
                 else:
                     context = "No document uploaded."
-
                 try:
                     with st.spinner("Thinking..."):
                         answer = generate_answer(client, question, context)
@@ -193,19 +111,20 @@ if mode == "Answer a question (Q1)":
                 except Exception:
                     st.error("Error calling Groq API. Please try again.")
 
-else:
+elif mode == "Make abbreviation list (Q2)":
     uploaded_files = st.file_uploader(
-        "Upload article(s):",
+        "Upload one or more files:",
         accept_multiple_files=True
     )
-
     if st.button("Generate abbreviation list"):
         if not uploaded_files:
-            st.error("Please upload at least one article.")
+            st.error("Please upload at least one file.")
         else:
-            for file in uploaded_files:
-                st.subheader(f"Abbreviation list for: {file.name}")
-                with st.spinner(f"Reading {file.name}..."):
-                    text = extract_text(file)
-                    index_text = generate_abbrev_index(text)
-                st.code(index_text, language="text")
+            for f in uploaded_files:
+                text = extract_text(f)
+                index = generate_abbrev_index(text)
+                st.subheader(f"Abbreviations for {f.name}")
+                if index.strip():
+                    st.code(index)
+                else:
+                    st.write("No abbreviations found.")
