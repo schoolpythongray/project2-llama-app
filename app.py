@@ -13,12 +13,13 @@ def get_client():
     return client
 
 def generate_answer(client, question, context):
+    short_context = context[:8000]
     prompt = f"""
 You are an AI assistant.
 
 Below is the document text (which may be empty):
 
-{context}
+{short_context}
 
 If the document is empty, you may answer the question from your general knowledge.
 If the document has content, use it to answer the question.
@@ -29,35 +30,56 @@ Question:
 Answer:
 """
     chat_completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}]
     )
     return chat_completion.choices[0].message.content.strip()
 
 def generate_abbrev_index(client, context):
+    short_context = context[:8000]
     prompt = f"""
-Read the article and look for abbreviations written like this:
+Read the article and identify abbreviations that are defined like this:
 
 full phrase (ABBR)
 
-Use only the abbreviations that are actually defined in the article.
+Only include abbreviations that appear in this format.
 
-For each one, write a line like:
+For each abbreviation, output one line exactly like this:
 ABBR: full phrase
 
-Put the list in A–Z order.
 Do not add anything else.
 
 Article:
-{context}
+{short_context}
 
 Abbreviation list:
 """
     chat_completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}]
     )
-    return chat_completion.choices[0].message.content.strip()
+    raw = chat_completion.choices[0].message.content.strip()
+
+    lines = []
+    for raw_line in raw.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line[0] in ["-", "•", "*", "·"]:
+            line = line[1:].strip()
+        if ":" not in line:
+            continue
+        left, right = line.split(":", 1)
+        left = left.strip()
+        right = right.strip()
+        if not left or not right:
+            continue
+        if " " in left:
+            continue
+        if not (1 <= len(left) <= 15):
+            continue
+        lines.append(f"{left}: {right}")
+    return "\n".join(lines)
 
 def read_pdf(file):
     reader = PdfReader(file)
@@ -93,7 +115,7 @@ def extract_text(uploaded_file):
     else:
         return read_txt(uploaded_file)
 
-st.title("Input to AI")
+st.title("Input to AI (Groq Version)")
 
 mode = st.radio(
     "Choose what you want to do:",
@@ -102,7 +124,7 @@ mode = st.radio(
 
 if mode == "Answer a question (Q1)":
     question = st.text_input("Enter your question:")
-    uploaded_file = st.file_uploader("Upload a file:")
+    uploaded_file = st.file_uploader("Upload a file (optional):")
 
     if st.button("Ask"):
         if not question.strip():
@@ -118,11 +140,13 @@ if mode == "Answer a question (Q1)":
                 else:
                     context = "No document uploaded."
 
-                with st.spinner("Thinking..."):
-                    answer = generate_answer(client, question, context)
-
-                st.header("AI Response:")
-                st.write(answer)
+                try:
+                    with st.spinner("Thinking..."):
+                        answer = generate_answer(client, question, context)
+                    st.header("AI Response:")
+                    st.write(answer)
+                except Exception:
+                    st.error("Error calling Groq API. Please try again.")
 
 else:
     uploaded_files = st.file_uploader(
@@ -143,5 +167,8 @@ else:
                     st.subheader(f"Abbreviation list for: {file.name}")
                     with st.spinner(f"Reading {file.name}..."):
                         text = extract_text(file)
-                        index_text = generate_abbrev_index(client, text)
+                        try:
+                            index_text = generate_abbrev_index(client, text)
+                        except Exception:
+                            index_text = "Error calling Groq API for this article."
                     st.code(index_text, language="text")
