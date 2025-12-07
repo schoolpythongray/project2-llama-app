@@ -38,21 +38,26 @@ Answer:
 def generate_abbrev_index(client, context):
     short_context = context[:8000]
     prompt = f"""
-Read the article and identify abbreviations that are defined like this:
+Read the article text below.
+
+Find abbreviation definitions written like this:
 
 full phrase (ABBR)
 
-Only include abbreviations that appear in this format.
+For each one you find, output one line containing exactly the definition
+as it appears in the text, for example:
 
-For each abbreviation, output one line exactly like this:
-ABBR: full phrase
+exponential random graph model (ERGM)
+Chinese Academy of Science (CAS)
+weighted degree centrality (WDC)
 
-Do not add anything else.
+Do not add bullets or any explanation.
+One definition per line.
 
 Article:
 {short_context}
 
-Abbreviation list:
+Abbreviation definitions:
 """
     chat_completion = client.chat.completions.create(
         model="llama-3.1-8b-instant",
@@ -61,24 +66,43 @@ Abbreviation list:
     raw = chat_completion.choices[0].message.content.strip()
 
     lines = []
+    seen = set()
+
     for raw_line in raw.splitlines():
         line = raw_line.strip()
         if not line:
             continue
+
         if line[0] in ["-", "•", "*", "·"]:
             line = line[1:].strip()
-        if ":" not in line:
+
+        if "(" not in line or ")" not in line:
             continue
-        left, right = line.split(":", 1)
-        left = left.strip()
-        right = right.strip()
-        if not left or not right:
+
+        try:
+            open_idx = line.index("(")
+            close_idx = line.index(")", open_idx + 1)
+        except ValueError:
             continue
-        if " " in left:
+
+        phrase = line[:open_idx].strip()
+        abbr = line[open_idx + 1:close_idx].strip()
+
+        if not phrase or not abbr:
             continue
-        if not (1 <= len(left) <= 15):
+
+        if " " in abbr and len(abbr) > 5:
             continue
-        lines.append(f"{left}: {right}")
+
+        if not (1 <= len(abbr) <= 15):
+            continue
+
+        key = (abbr, phrase)
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"{abbr}: {phrase}")
+
     return "\n".join(lines)
 
 def read_pdf(file):
