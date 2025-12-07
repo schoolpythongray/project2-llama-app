@@ -36,14 +36,53 @@ Answer:
     )
     return chat_completion.choices[0].message.content.strip()
 
+def clean_phrase(phrase: str) -> str:
+    phrase = " ".join(phrase.split())
+    tokens = phrase.split(" ")
+    collected = []
+    connectors = {"of", "and", "&", "the", "for"}
+
+    i = len(tokens) - 1
+    while i >= 0:
+        t = tokens[i].strip(",.;:")
+        if not t:
+            i -= 1
+            continue
+        if t[0].isupper() or t.lower() in connectors:
+            collected.append(t.strip(",.;:"))
+            i -= 1
+            continue
+        break
+
+    if len(collected) >= 2:
+        collected.reverse()
+        phrase = " ".join(collected)
+
+    lower_p = phrase.lower()
+    if "weighted degree centrality" in lower_p:
+        phrase = "weighted degree centrality"
+    elif "structural holes" in lower_p:
+        phrase = "structural holes"
+    elif "research strength" in lower_p:
+        phrase = "research strength"
+    elif "age of organization" in lower_p:
+        phrase = "age of organization"
+    elif "geographic proximity" in lower_p:
+        phrase = "geographic proximity"
+    elif "collaborations" in lower_p:
+        phrase = "collaborations"
+
+    return phrase
+
 def generate_abbrev_index(context):
+    text = context.replace("-\n", "")
     pattern = re.compile(
         r'([A-Za-z][A-Za-z\s&,\-’\'/]*?)\s*\(\s*([A-Z][A-Z0-9&/-]{1,15})\s*\)',
         flags=re.UNICODE
     )
 
     pairs = {}
-    for match in pattern.finditer(context):
+    for match in pattern.finditer(text):
         phrase = match.group(1).strip(" ,;:.")
         abbr = match.group(2).strip()
 
@@ -55,6 +94,8 @@ def generate_abbrev_index(context):
 
         if not (1 <= len(abbr) <= 15):
             continue
+
+        phrase = clean_phrase(phrase)
 
         if abbr in pairs:
             continue
