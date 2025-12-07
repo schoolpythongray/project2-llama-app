@@ -4,6 +4,7 @@ from groq import Groq
 from PyPDF2 import PdfReader
 import docx
 from bs4 import BeautifulSoup
+import re
 
 def get_client():
     api_key = os.environ.get("GROQ_API_KEY")
@@ -35,58 +36,16 @@ Answer:
     )
     return chat_completion.choices[0].message.content.strip()
 
-def generate_abbrev_index(client, context):
-    short_context = context[:8000]
-    prompt = f"""
-Read the article text below.
-
-Find abbreviation definitions written like this:
-
-full phrase (ABBR)
-
-For each one you find, output one line containing exactly the definition
-as it appears in the text, for example:
-
-exponential random graph model (ERGM)
-Chinese Academy of Science (CAS)
-weighted degree centrality (WDC)
-
-Do not add bullets or any explanation.
-One definition per line.
-
-Article:
-{short_context}
-
-Abbreviation definitions:
-"""
-    chat_completion = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": prompt}]
+def generate_abbrev_index(context):
+    pattern = re.compile(
+        r'([A-Za-z][A-Za-z\s&,\-’\'/]*?)\s*\(\s*([A-Z][A-Z0-9&/-]{1,15})\s*\)',
+        flags=re.UNICODE
     )
-    raw = chat_completion.choices[0].message.content.strip()
 
-    lines = []
-    seen = set()
-
-    for raw_line in raw.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        if line[0] in ["-", "•", "*", "·"]:
-            line = line[1:].strip()
-
-        if "(" not in line or ")" not in line:
-            continue
-
-        try:
-            open_idx = line.index("(")
-            close_idx = line.index(")", open_idx + 1)
-        except ValueError:
-            continue
-
-        phrase = line[:open_idx].strip()
-        abbr = line[open_idx + 1:close_idx].strip()
+    pairs = {}
+    for match in pattern.finditer(context):
+        phrase = match.group(1).strip(" ,;:.")
+        abbr = match.group(2).strip()
 
         if not phrase or not abbr:
             continue
@@ -97,12 +56,12 @@ Abbreviation definitions:
         if not (1 <= len(abbr) <= 15):
             continue
 
-        key = (abbr, phrase)
-        if key in seen:
+        if abbr in pairs:
             continue
-        seen.add(key)
-        lines.append(f"{abbr}: {phrase}")
 
+        pairs[abbr] = phrase
+
+    lines = [f"{abbr}: {pairs[abbr]}" for abbr in sorted(pairs.keys())]
     return "\n".join(lines)
 
 def read_pdf(file):
@@ -139,7 +98,7 @@ def extract_text(uploaded_file):
     else:
         return read_txt(uploaded_file)
 
-st.title("Input to AI (Groq Version)")
+st.title("Input to AI")
 
 mode = st.radio(
     "Choose what you want to do:",
@@ -182,17 +141,9 @@ else:
         if not uploaded_files:
             st.error("Please upload at least one article.")
         else:
-            try:
-                client = get_client()
-            except ValueError as e:
-                st.error(str(e))
-            else:
-                for file in uploaded_files:
-                    st.subheader(f"Abbreviation list for: {file.name}")
-                    with st.spinner(f"Reading {file.name}..."):
-                        text = extract_text(file)
-                        try:
-                            index_text = generate_abbrev_index(client, text)
-                        except Exception:
-                            index_text = "Error calling Groq API for this article."
-                    st.code(index_text, language="text")
+            for file in uploaded_files:
+                st.subheader(f"Abbreviation list for: {file.name}")
+                with st.spinner(f"Reading {file.name}..."):
+                    text = extract_text(file)
+                    index_text = generate_abbrev_index(text)
+                st.code(index_text, language="text")
