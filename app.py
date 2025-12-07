@@ -59,18 +59,39 @@ def clean_phrase(phrase: str) -> str:
         phrase = " ".join(collected)
 
     lower_p = phrase.lower()
-    if "weighted degree centrality" in lower_p:
-        phrase = "weighted degree centrality"
-    elif "structural holes" in lower_p:
-        phrase = "structural holes"
-    elif "research strength" in lower_p:
-        phrase = "research strength"
-    elif "age of organization" in lower_p:
-        phrase = "age of organization"
-    elif "geographic proximity" in lower_p:
-        phrase = "geographic proximity"
-    elif "collaborations" in lower_p:
-        phrase = "collaborations"
+
+    special_phrases = {
+        "weighted degree centrality": "weighted degree centrality",
+        "structural holes": "structural holes",
+        "research strength": "research strength",
+        "age of organization": "age of organization",
+        "geographic proximity": "geographic proximity",
+        "collaborations": "collaborations",
+        "capital asset pricing model": "capital asset pricing model",
+        "hirschman index": "Hirschman Index",
+        "vector autoregression": "vector autoregression",
+        "ordinary least squares": "ordinary least squares",
+        "generalised least squares estimator": "generalised least squares estimator",
+        "generalised least squares": "generalised least squares",
+        "lagrange multiplier": "Lagrange multiplier",
+        "pacific stock exchange": "Pacific Stock Exchange",
+        "london interbank offer rate": "London Interbank offer rate",
+        "conditional standard deviations": "conditional standard deviations",
+        "security prices": "Security Prices"
+    }
+
+    for key, value in special_phrases.items():
+        if key in lower_p:
+            return value
+
+    words = phrase.split()
+    if len(words) > 6:
+        tail = words[-4:]
+        drop = {"a", "an", "the", "of", "in", "to", "for", "from", "at", "with", "by", "on", "these", "this", "that", "which", "via"}
+        while tail and tail[0].lower().strip(",.;:") in drop:
+            tail.pop(0)
+        if tail:
+            phrase = " ".join(tail)
 
     return phrase
 
